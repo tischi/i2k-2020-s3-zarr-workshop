@@ -36,17 +36,15 @@ def copy_dataset(ds_in, ds_out, n_threads):
         list(tqdm(tp.map(_copy_chunk, blocks), total=n_blocks))
 
 
-# expand the 2 leading dimensions of the zarr dataset
-def expand_dims(ds_path):
-    attrs_file = os.path.join(ds_path, '.zarray')
-    assert os.path.exists(attrs_file)
+def is_int(some_string):
+    try:
+        int(some_string)
+        return True
+    except ValueError:
+        return False
 
-    def is_int(some_string):
-        try:
-            int(some_string)
-            return True
-        except ValueError:
-            return False
+
+def expand_chunks_nested(ds_path):
 
     chunk_files = os.listdir(ds_path)
     chunk_files = [cf for cf in chunk_files if is_int(cf)]
@@ -59,6 +57,31 @@ def expand_dims(ds_path):
         shutil.move(os.path.join(ds_path, cf), os.path.join(dim1, cf))
 
     shutil.move(dim0, os.path.join(ds_path, '0'))
+
+
+def expand_chunks_flat(ds_path):
+    def is_chunk(some_name):
+        chunk_idx = some_name.split('.')
+        return all(map(is_int, chunk_idx)) and len(chunk_idx) > 0
+
+    chunk_files = os.listdir(ds_path)
+    chunk_files = [cf for cf in chunk_files if is_chunk(cf)]
+
+    for cf in chunk_files:
+        shutil.move(os.path.join(ds_path, cf),
+                    os.path.join(ds_path, '0.0.' + cf))
+
+
+# NOTE this works because zarr doesn't have a chunk header
+# expand the 2 leading dimensions of the zarr dataset
+def expand_dims(ds_path, use_nested_store):
+    attrs_file = os.path.join(ds_path, '.zarray')
+    assert os.path.exists(attrs_file)
+
+    if use_nested_store:
+        expand_chunks_nested(ds_path)
+    else:
+        expand_chunks_flat(ds_path)
 
     with open(attrs_file) as f:
         attrs = json.load(f)
@@ -75,7 +98,7 @@ def expand_dims(ds_path):
         json.dump(attrs, f, indent=2, sort_keys=True)
 
 
-def convert_bdv_n5(in_path, out_path, n_threads):
+def convert_bdv_n5(in_path, out_path, use_nested_store, n_threads):
     with z5py.File(in_path, mode='r') as f_in, zarr.open(out_path, mode='w') as f_out:
         # we assume bdv.n5 file format and only a single channel
         scale_group = f_in['setup0/timepoint0']
@@ -85,7 +108,10 @@ def convert_bdv_n5(in_path, out_path, n_threads):
         for name in scale_names:
             ds_in = scale_group[name]
 
-            store = zarr.NestedDirectoryStore(os.path.join(out_path, name))
+            if use_nested_store:
+                store = zarr.NestedDirectoryStore(os.path.join(out_path, name))
+            else:
+                store = zarr.DirectoryStore(os.path.join(out_path, name))
             ds_out = zarr.zeros(store=store,
                                 shape=ds_in.shape,
                                 chunks=ds_in.chunks,
@@ -95,7 +121,7 @@ def convert_bdv_n5(in_path, out_path, n_threads):
 
             # this invalidates the shape and chunk attributes of our dataset,
             # so we can't use it after that (but we also don't need to)
-            expand_dims(os.path.join(out_path, name))
+            expand_dims(os.path.join(out_path, name), use_nested_store)
 
         f_out.attrs['multiscalles'] = [
             {
@@ -109,7 +135,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('inp', type=str)
     parser.add_argument('outp', type=str)
+    parser.add_argument('--use_nested_store', type=int, default=0)
     parser.add_argument('--n_threads', type=int, default=8)
 
     args = parser.parse_args()
-    convert_bdv_n5(args.inp, args.outp, args.n_threads)
+    convert_bdv_n5(args.inp, args.outp, bool(args.use_nested_store), args.n_threads)
