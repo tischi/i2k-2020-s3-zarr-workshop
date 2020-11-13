@@ -30,7 +30,12 @@ def copy_dataset(ds_in, ds_out, n_threads):
     n_blocks = len(blocks)
 
     def _copy_chunk(block):
-        ds_out[block] = ds_in[block]
+        # make sure we don't copy empty blocks; I don't know
+        # if zarr makes sure not to write them out
+        data_in = ds_in[block]
+        if data_in.sum() == 0:
+            return
+        ds_out[block] = data_in
 
     with futures.ThreadPoolExecutor(n_threads) as tp:
         list(tqdm(tp.map(_copy_chunk, blocks), total=n_blocks))
