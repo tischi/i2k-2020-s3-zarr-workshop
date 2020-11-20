@@ -8,9 +8,10 @@ import zarr
 import z5py  # NOTE: once the issue with zarr opening n5 groups is resolved, we can also use zarr for reading the n5s
 from tqdm import tqdm
 from z5py.util import blocking
+from pybdv.util import get_scale_factors, relative_to_absolute_scale_factors
 
 
-def copy_dataset(ds_in, ds_out, n_threads):
+def copy_dataset(ds_in, ds_out, n_threads, desc):
     """ Copy input to output dataset in parallel.
 
     Arguments:
@@ -38,7 +39,7 @@ def copy_dataset(ds_in, ds_out, n_threads):
         ds_out[block] = data_in
 
     with futures.ThreadPoolExecutor(n_threads) as tp:
-        list(tqdm(tp.map(_copy_chunk, blocks), total=n_blocks))
+        list(tqdm(tp.map(_copy_chunk, blocks), total=n_blocks, desc=desc))
 
 
 def is_int(some_string):
@@ -103,36 +104,70 @@ def expand_dims(ds_path, use_nested_store):
         json.dump(attrs, f, indent=2, sort_keys=True)
 
 
-def convert_bdv_n5(in_path, out_path, out_key,
-                   use_nested_store, n_threads):
+def normalize_scales(scales, start_scale):
+    scales = scales[start_scale:]
+    normalized_scales = []
+
+    # to relative scale factors
+    s_prev = scales[0]
+    for scale in scales:
+        norm_scale = [s / sp for s, sp in zip(scale, s_prev)]
+        normalized_scales.append(norm_scale)
+        s_prev = scale
+
+    # to absolute scale factors
+    normalized_scales = relative_to_absolute_scale_factors(normalized_scales)
+    return normalized_scales
+
+
+def convert_bdv_n5(in_path, out_path, out_key, vol_name,
+                   use_nested_store, n_threads, start_scale=0):
+
+    scales = get_scale_factors(in_path, setup_id=0)
+    if start_scale > 0:
+        scales = normalize_scales(scales, start_scale)
+
     with z5py.File(in_path, mode='r') as f_in, zarr.open(out_path, mode='w') as f_out:
         # we assume bdv.n5 file format and only a single channel
         scale_group = f_in['setup0/timepoint0']
         scale_names = [elem for elem in scale_group]
         scale_names.sort()
 
-        for name in scale_names:
+        if start_scale > 0:
+            scale_names = scale_names[start_scale:]
+
+        g_out = f_out.create_group(out_key)
+        out_names = []
+
+        for sid, name in enumerate(scale_names):
             ds_in = scale_group[name]
+            out_name = f"s{sid}"
 
             if use_nested_store:
-                store = zarr.NestedDirectoryStore(os.path.join(out_path, out_key, name))
+                store = zarr.NestedDirectoryStore(os.path.join(out_path, out_key, out_name))
             else:
-                store = zarr.DirectoryStore(os.path.join(out_path, out_key, name))
+                store = zarr.DirectoryStore(os.path.join(out_path, out_key, out_name))
             ds_out = zarr.zeros(store=store,
                                 shape=ds_in.shape,
                                 chunks=ds_in.chunks,
                                 dtype=ds_in.dtype)
 
-            copy_dataset(ds_in, ds_out, n_threads)
+            desc = f"Copy {name} to {out_name}"
+            copy_dataset(ds_in, ds_out, n_threads, desc)
 
             # this invalidates the shape and chunk attributes of our dataset,
             # so we can't use it after that (but we also don't need to)
-            expand_dims(os.path.join(out_path, out_key, name), use_nested_store)
+            expand_dims(os.path.join(out_path, out_key, out_name), use_nested_store)
+            out_names.append(out_name)
 
-        f_out.attrs['multiscalles'] = [
+        assert len(out_names) == len(scales)
+
+        g_out.attrs['multiscales'] = [
             {
+                "name": vol_name,
                 "version": "0.1",
-                "datasets": [{"path": name} for name in scale_names]
+                "datasets": [{"path": name} for name in out_names],
+                "scales": [scale[::-1] for scale in scales]
             }
         ]
 

@@ -1,0 +1,35 @@
+{
+  "em-cells": {
+    "color": "randomFromGlasbey",
+    "contrastLimits": [
+      0.0,
+      1000.0
+    ],
+    "storage": {
+      "remote": "em-cells.xml"
+    },
+    "type": "segmentation"
+  },
+  "em-raw": {
+    "color": "white",
+    "contrastLimits": [
+      0.0,
+      255.0
+    ],
+    "storage": {
+      "remote": "em-raw.xml"
+    },
+    "type": "image"
+  },
+  "prospr-myosin": {
+    "color": "white",
+    "contrastLimits": [
+      0.0,
+      255.0
+    ],
+    "storage": {
+      "remote": "prospr-myosin.xml"
+    },
+    "type": "image"
+  }
+}
