@@ -136,17 +136,23 @@ def convert_bdv_n5(in_path, out_path, out_key, vol_name,
         if start_scale > 0:
             scale_names = scale_names[start_scale:]
 
-        g_out = f_out.create_group(out_key)
+        write_at_root = out_key is None or out_key == ''
+        if write_at_root:
+            g_out = f_out
+        else:
+            g_out = f_out.create_group(out_key)
         out_names = []
 
         for sid, name in enumerate(scale_names):
             ds_in = scale_group[name]
             out_name = f"s{sid}"
 
+            store_path = os.path.join(out_path, out_name) if write_at_root else\
+                os.path.join(out_path, out_key, out_name)
             if use_nested_store:
-                store = zarr.NestedDirectoryStore(os.path.join(out_path, out_key, out_name))
+                store = zarr.NestedDirectoryStore(store_path)
             else:
-                store = zarr.DirectoryStore(os.path.join(out_path, out_key, out_name))
+                store = zarr.DirectoryStore(store_path)
             ds_out = zarr.zeros(store=store,
                                 shape=ds_in.shape,
                                 chunks=ds_in.chunks,
@@ -157,7 +163,7 @@ def convert_bdv_n5(in_path, out_path, out_key, vol_name,
 
             # this invalidates the shape and chunk attributes of our dataset,
             # so we can't use it after that (but we also don't need to)
-            expand_dims(os.path.join(out_path, out_key, out_name), use_nested_store)
+            expand_dims(store_path, use_nested_store)
             out_names.append(out_name)
 
         assert len(out_names) == len(scales)
