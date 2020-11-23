@@ -21,10 +21,10 @@ def write_metadata(in_xml, out_xml, out_path):
                       bucket_name=bucket_name,
                       path_in_bucket=path_in_bucket,
                       authentication='Anonymous',
-                      bdv_type='bdv.zarr.s3')
+                      bdv_type='ome.zarr.s3')
 
     with z5py.File(out_path, 'r') as f:
-        shape = f['setup0/timepoint0/s0'].shape[2:]
+        shape = f['s0'].shape[2:]
 
     # check if we need to update the shape and resolution
     exp_shape = get_size(out_xml, setup_id=0)
@@ -71,7 +71,7 @@ def add_volume(in_path, vol_name, layer_type, start_scale=0):
     # convert to ome zarr
     convert_bdv_n5(in_path=in_path,
                    out_path=out_path,
-                   out_key='setup0/timepoint0',
+                   out_key='',
                    vol_name=vol_name,
                    use_nested_store=False,
                    n_threads=8,
@@ -117,4 +117,5 @@ def add_all_volumes():
 
 
 if __name__ == '__main__':
-    add_all_volumes()
+    add_myosin()
+    # add_all_volumes()
