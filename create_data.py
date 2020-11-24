@@ -117,5 +117,4 @@ def add_all_volumes():
 
 
 if __name__ == '__main__':
-    add_myosin()
-    # add_all_volumes()
+    add_all_volumes()
